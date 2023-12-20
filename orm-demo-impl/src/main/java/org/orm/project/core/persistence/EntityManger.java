@@ -1,10 +1,10 @@
-package org.orm.demo.hibernate;
+package org.orm.project.core.persistence;
 
 import lombok.SneakyThrows;
 
-import org.orm.demo.hibernate.business.EntityService;
-import org.orm.demo.hibernate.db.QueryProcessor;
-import org.orm.demo.hibernate.record.EntryKey;
+import org.orm.project.entity.record.EntryKey;
+import org.orm.project.managers.DataAccessManager;
+import org.orm.project.utilities.FieldHelper.FieldHelper;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Field;
@@ -12,14 +12,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 
-public class Session {
+public class EntityManger {
     private final DataSource dataSource;
-    private final EntityService entityService;
+    private final DataAccessManager dataAccessManager;
     private final Map<EntryKey<?>, Object> cache = new HashMap<>();
     private final Map<Class<?>, Set<Object>> cacheSet = new HashMap<>();
     private final Map<EntryKey<?>, Object[]> snapShotEntity = new HashMap<>();
-    public Session(DataSource dataSource) {
-        this.entityService = new EntityService();
+    public EntityManger(DataSource dataSource) {
+        this.dataAccessManager = new DataAccessManager();
         this.dataSource = dataSource;
     }
 
@@ -44,7 +44,7 @@ public class Session {
     @SneakyThrows
     public <T> void remove(Class<T> type, Long id) {
         try (var connection = dataSource.getConnection()) {
-            int status = entityService.deleteResultSet(type, id, connection);
+            int status = dataAccessManager.deleteResultSet(type, id, connection);
             if (status <= 0) {
                 throw new SQLException("delete didnt performed");
             }
@@ -54,7 +54,7 @@ public class Session {
     @SneakyThrows
     public <T> void persist(T entity) {
         try (var connection = dataSource.getConnection()) {
-            int status = entityService.insertResultSet(entity, connection);
+            int status = dataAccessManager.insertResultSet(entity, connection);
         }
     }
 
@@ -65,9 +65,25 @@ public class Session {
     }
     @SneakyThrows
     private boolean dirtyChecking(Map.Entry<EntryKey<?>, Object> objectEntry) {
-        ArrayList<Object> firstEntity = new ArrayList<>(Arrays.stream(snapShotEntity.get(objectEntry.getKey())).toList());
-        ArrayList<Object> secondEntity = EntityService.createListFromObjectFields(objectEntry);
-        return !Objects.equals(firstEntity, secondEntity);
+        ArrayList<Object> oldEntity = new ArrayList<>(Arrays.stream(snapShotEntity.get(objectEntry.getKey())).toList());
+        ArrayList<Object> updated = createListFromObjectFields(objectEntry);
+        return !Objects.equals(oldEntity, updated);
+    }
+
+    private static ArrayList<Object> createListFromObjectFields(Map.Entry<EntryKey<?>, Object> objectEntry) throws IllegalAccessException {
+        Field[] fields = objectEntry.getValue().getClass().getDeclaredFields();
+        fields = FieldHelper.sortFieldsByName(fields);
+        return createList(objectEntry, fields);
+    }
+
+    private static ArrayList<Object> createList(Map.Entry<EntryKey<?>, Object> objectEntry, Field[] fields) throws IllegalAccessException {
+        ArrayList<Object> secondEntity = new ArrayList<>();
+        FieldHelper.setAccessibleToAllFieldsTrue(fields);
+        for (Field field : fields) {
+            Object value = field.get(objectEntry.getValue());
+            secondEntity.add(value);
+        }
+        return secondEntity;
     }
 
 
@@ -76,7 +92,7 @@ public class Session {
     @SneakyThrows
     private void performUpdate(Map.Entry<EntryKey<?>, Object> objectEntry) {
         var connection = dataSource.getConnection();
-        int status = entityService.updateResultSet(objectEntry, connection);
+        int status = dataAccessManager.updateResultSet(objectEntry, connection);
     }
 
 
@@ -84,9 +100,9 @@ public class Session {
     private <T> T loadFromDB(EntryKey<T> key, Long id) {
         var type = key.type();
         var connection = dataSource.getConnection();
-        ResultSet resultSetFromDB = entityService.findByIdResultSet(type, id, connection);
+        ResultSet resultSetFromDB = dataAccessManager.findByIdResultSet(type, id, connection);
         if (resultSetFromDB.next()) {
-            return entityService.getMappedEntity(key, resultSetFromDB, snapShotEntity);
+            return dataAccessManager.getMappedEntity(key, resultSetFromDB, snapShotEntity);
         } else {
             return null;
         }
@@ -95,8 +111,8 @@ public class Session {
     @SneakyThrows
     private <T> Set<Object> loadFromDB(Class<T> type) {
         try (var connection = dataSource.getConnection()) {
-            ResultSet resultSetFromDB = entityService.findAllResultSet(type, connection);
-            return entityService.getMappedSetOfEntity(type, resultSetFromDB);
+            ResultSet resultSetFromDB = dataAccessManager.findAllResultSet(type, connection);
+            return dataAccessManager.getMappedSetOfEntity(type, resultSetFromDB);
         }
     }
 

@@ -1,4 +1,4 @@
-package org.orm.demo.hibernate.annotations;
+package org.orm.project.core.annotations;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
